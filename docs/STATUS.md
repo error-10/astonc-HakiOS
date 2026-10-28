@@ -196,3 +196,33 @@ UEFI 与内核各约 8～10 分钟。当前固化产物（2026-10-28 13:20 重�
 
 **当前状态：到此告一段落。** 下一步按优先级：GPU/Metal（Adreno 740，参照 UniXNU）→ 电池/充电 →
 Wi-Fi → 音频 → 蜂窝；另外可把开机时间（约 3.5 分钟）和 SpringBoard 帧率一起优化。
+
+## 里程碑 4：SoC 地址参数化 + 电池接入（2026-10-28 15:0x）
+
+上游有六个驱动把「应用处理器 RPMh 定序器的 DRV-2」写死成 redwood 的 `0x18220000`，cmd-db 写死
+`0x80860000`。Aston 分别是 `0x17a20000` 和 `0x81c60000`，所以这些驱动编进内核也是一读就 external
+abort（跟当初触摸踩的坑同源）。
+
+改动（`port/kernel/patch_socargs.py`，幂等，可反复跑）：
+
+- `bsd/sys/hakios.input.h` 声明 `hakios_soc_rsc()` / `hakios_soc_cmd_db()`；
+- `bsd/dev/hakios.input.c` 里实现，从 boot-args 的 `soc_rsc` / `soc_cmd_db` 取值，缺省保持首台机器的
+  地址（redwood 依旧不需要任何参数），并在 `hakios_input_init()` 最前面调用，早于任何驱动；
+- `hakios.cpufreq.c`、`hakios.goodix.c`、`hakios.camera.c`、`hakios.wifi.c`、`hakios.adsp.c` 改用 getter；
+  wifi / adsp 的 `struct block rsc` 在各自 init 里指到 getter。
+
+内核重编：`out/mach.development.bcm2837` 15,290,592 B，`SoC addresses from boot-args` 字符串在，
+boot 镜像已重打（`boot-aston-xnu.img` / `boot-aston-auto.img` = `boot-aston-full.img`，7,774,208 B）。
+
+电池：
+
+- astonPkg 的 `Include/DXE.inc` 里本来就有 `ChargerExDxe` 和 `QcomChargerDxeLA`（第 84、87 行），
+  也就是说 UEFI 这一侧的充电协议栈在。
+- xnuloader 的 `charger_start()` 原本只对 redwood 生效，现放开到 aston（`patch_hackios_loader.py`
+  第 9 个 hunk）；启动器 cmdline 加了 `battery=1`，loader 会自动追加 `battery_shared_pa=0x...`，
+  内核 `hakios.battery.c` 只读这块缓存。
+- 未验证：真机没连。预期 loader 日志出现
+  `battery: ChargerEx=.. QcomCharger=.. init=.. shared=..` 与 `battery: flags=.. SOC=..% V=..mV`。
+
+尚未落地的：cpufreq 真正跑起来（RSC 通了，但还要核对 kalama 的 BCM 表）、adsp 固件地址、Wi-Fi 芯片型号
+与固件、GPU。

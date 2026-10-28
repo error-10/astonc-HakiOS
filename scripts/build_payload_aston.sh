@@ -16,7 +16,8 @@ SOC_ARGS=${SOC_ARGS:-$ROOT/port/devices/oneplus-aston/soc.args}
 # First bring-up cmdline. Keep it small: every flag is a driver the kernel skips or starts,
 # and a wrong one is a panic we have to tell apart from a wrong address. The soc_* block
 # describes this SoC's memory map to the drivers (see devices/<name>/soc.args upstream).
-CMDLINE=${CMDLINE:-"-v hv_wdt_pet=1 bootcpu=7 cpus=8 ufs=2"}
+# No -v: the kernel's verbose console paints over the framebuffer and looks like a crash.
+CMDLINE=${CMDLINE:-"hv_wdt_pet=1 bootcpu=7 cpus=8 ufs=2 aston_touch=1 aston_touch_ldo=1 battery=1"}
 
 if [ ! -f "$K" ]; then
   echo "kernel missing: $K" >&2

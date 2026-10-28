@@ -46,7 +46,7 @@ SOC_ARGS = os.path.join(WS, 'port', 'devices', 'oneplus-aston', 'soc.args')
 # The kernel command line the port needs on top of whatever the caller passes: the loader
 # reports where it put the payload on stdout, `rd=md0` is the resident system image, and
 # `hv_wdt_pet=1` lets the loader keep the phone's virtual watchdog fed while XNU runs.
-BASE_CMDLINE = 'debug=0x8 cpus=8 rd=md0 hv_wdt_pet=1 aston_touch=1 aston_touch_ldo=1'
+BASE_CMDLINE = 'debug=0x8 cpus=8 rd=md0 hv_wdt_pet=1 aston_touch=1 aston_touch_ldo=1 battery=1'
 
 
 def fb(*args, timeout=30, capture=True):

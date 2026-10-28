@@ -88,6 +88,13 @@ if 'platform_aston' in src:
         anchor = '\t\t} else if (starts_with(cmd, "oem log")) {\n'
         src = src[:start] + READLOG_HANDLER[:-len(anchor)] + src[end:]
         print('patch: oem readlog rewritten to stage the tail of the log partition')
+    # Battery: the charger stack is in aston's UEFI too (ChargerExDxe, QcomChargerDxeLA), so let
+    # the loader reach it on this phone and publish the cache the kernel reads.
+    batt_old = '\tif (charger_enabled || PLAT != &platform_redwood) {\n'
+    batt_new = '\tif (charger_enabled || (PLAT != &platform_redwood && PLAT != &platform_aston)) {\n'
+    if batt_old in src:
+        src = src.replace(batt_old, batt_new, 1)
+        print('patch: charger polled on aston too')
     src, added = add_readlog(src)
     if added:
         print('patch: oem readlog command added')
@@ -225,6 +232,13 @@ sub(
     '\t\treturn; /* SMC is not routed anywhere useful on QEMU virt */\n'
     '\t}\n',
     'virtual watchdog on every phone',
+)
+
+# 9. Battery: aston's UEFI carries the Qualcomm charger drivers, so poll them here as well.
+sub(
+    '\tif (charger_enabled || PLAT != &platform_redwood) {\n',
+    '\tif (charger_enabled || (PLAT != &platform_redwood && PLAT != &platform_aston)) {\n',
+    'charger polled on aston too',
 )
 
 for old, new, note in EDITS:
