@@ -1,0 +1,31 @@
+# OnePlus Ace 3 (PJE110, codename astonc) / OnePlus 12R (CPH2585, codename aston)
+# SoC: SM8550 (kalama), kernel 5.15 GKI vendor tree
+#
+# Source of these numbers: OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8550,
+# branch oneplus/sm8550_b_16.0.0_ace_3, files
+#   kernel_platform/qcom/proprietary/devicetree/qcom/kalama.dtsi
+#   kernel_platform/qcom/proprietary/devicetree/qcom/msm-arm-smmu-kalama.dtsi
+#   vendor/qcom/proprietary/data-devicetree/kalama-ipa.dtsi
+# The mapping rule is the same one tools/soc-args.py implements.
+#
+# TODO(verify on device): once the phone is attached, run
+#   adb shell su -c 'cat /sys/firmware/fdt' > fdt.dtb
+#   tools/soc-args.py fdt.dtb
+# and replace anything that differs. soc_pas_mpss is the only value not found in
+# the DT snippets we have (guestvm pas-ids are 28/34/35, not the modem's).
+soc_ipa_base=0x3e40000      # qcom,ipa@3e00000 + 0x40000
+soc_gsi_base=0x3e04000      # qcom,ipa @ gsi-base
+soc_ipcc=0x408000           # qcom,ipcc@408000
+soc_aoss=0xc300000          # aoss_qmp: power-controller@c300000
+soc_rsc=0x17a20000          # apps_rsc drv-2 (reg-names drv-2)
+soc_apps_smmu=0x15000000    # apps_smmu: apps-smmu@15000000
+soc_cmd_db=0x81c60000       # aop_cmd_db_region (compatible qcom,cmd-db)
+soc_mpss_mem=0x89800000     # mpss_region@89800000
+modem_ipa_fw_at=0x9b090000  # ipa_gsi_region@9b090000
+soc_smem=0x81d00000         # smem_region@81d00000 (qcom,smem -> memory-region)
+soc_imem=0x14600000         # msm-imem@146aa000 rounded down to 2 MB
+soc_ipa_stream=0x4a0        # ipa_smmu_ap iommus <&apps_smmu 0x4A0>
+soc_ipa_stream_uc=0x4a2     # ipa_smmu_uc iommus <&apps_smmu 0x4A2>
+soc_pas_mpss=0x4            # TODO verify from the phone's own fdt
+soc_pas_ipa=0xf             # ipa_fws qcom,pas-id = <0xf>
+soc_ipa_fw=ipa_fws          # ipa_fws qcom,firmware-name

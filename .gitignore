@@ -1,0 +1,20 @@
+# build products: large, regenerable, and some of them are Apple's (never commit)
+out/
+logs/
+repos/
+*.img
+*.apfs
+*.fd
+*.efi
+*.bin
+mach.development.*
+ld*.bin
+loader.log*
+system.manifest
+rootfs*.dmg*
+sdk/
+xnu-src/
+Mu-Silicium/
+venv/
+__pycache__/
+*.pyc
