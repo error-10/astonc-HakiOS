@@ -42,11 +42,10 @@
 | iOS 16.5 用户态 | 可用 | launchd / backboardd / SpringBoard |
 | 显示 | 可用 | 1264×2780 @ `0xB8000000`，软件合成约 10 fps |
 | 触摸 | 可用 | Synaptics S3910，点击 / 拖动 / 双指缩放 / 边缘手势 |
-| 电源键、音量键 | 可用 | |
-| 电池与充电 | 未移植 | |
+| 电源 / 电池 / 充电 | 做到一半 | loader 从 UEFI 自带的 charger 栈取到读数，桥成共享页交给内核，iOS 这边的电源接口也通了。差的是把固件的字段布局和半毫伏换算上机核对一遍，所以现在显示的数字可能偏。 |
 | Wi-Fi / 蓝牙 | 未移植 | |
 | 音频 / 麦克风 | 未移植 | |
-| GPU / Metal | 未移植 | |
+| GPU / Metal | 有结论，还没点亮 | CX 域能开；GX 域归 GMU 固件管（mainline 里 `gpu_cc_gx_gdsc` 的 power_on 就是个空函数），软件硬开不开，所以 RBBM 一直读 0。下一步是拉 `a740_gmu.bin`，照 `hakios.adreno.c` 的路子走 GMU。 |
 | 蜂窝 / SIM | 未移植 | |
 | Apple ID / 激活 | 不支持 | 无 Secure Enclave |
 
