@@ -239,7 +239,7 @@ boot 镜像已重打（`boot-aston-xnu.img` / `boot-aston-auto.img` = `boot-asto
   - 分支时钟的投票在 `GCC + 0x52008`，`0x52000` bit22 是 RCG 的 `RCHNG`；
   - 复位是 `GCC + 0x6b000`（`PCIE0_BCR`）与 `0x6c01c`（`PCIE0_PHY_BCR`）；
   - PHY 的初始化序列是设备树里 `qcom,phy-sequence` 的 111 条三元组，直接生成成
-    `port/kernel/hakios.aston_pcie_phy_seq.h`。不猜，抄。
+    `hakios.aston_pcie_phy_seq.h`（本机工作目录，没进仓库）。不猜，抄。
 - TLMM 的基址一直写错了一兆（`0x0f100000` vs 实际 `pinctrl@f000000`），所以 PERST/CLKREQ/WLAN_EN 写下去等于没写。
 - 电源投票走 RPMh 的 TCS 命令：`tcs_vote(rsc, {addr, addr+4, addr+8}, {mV, 1, 4})`。
   cmd-db 里的地址是这次才搞对的——`ldob15=0x40b00`、`smpe4=0x40200`、`smpg2=0x40300`、`smpg4=0x40500`、`smpg6=0x40600`。
@@ -261,3 +261,11 @@ boot 镜像已重打（`boot-aston-xnu.img` / `boot-aston-auto.img` = `boot-asto
   按真机设备树改成 `0x9ea00000`/`0x4880000`、段上限 64（固件本身有 59 段）。
 - **一条硬经验**：`xnu-build.sh` 编译的是 `xnu-src/xnu-8796.121.2`，`xnu/files` 里的改动必须先拷进去，
   否则会安静地产出一个"没带你改动"的内核，白测一轮。
+
+## 仓库边界
+
+上面这些 Wi-Fi / GPU 的探针记录是**过程记录**，对应的代码（`hakios.aston_wifi.c`、`hakios.a740.c`、
+那颗 PHY 序列头文件，以及 `add_step*.py` / `wlan_*.py` 一类调试脚本）没有进仓库，都在本机工作目录里。
+
+理由很简单：它们会让内核在真机上黑屏卡死，谁照着仓库跑都会撞上。仓库里只留能开机进桌面的那一套。
+哪天 Wi-Fi 或者 GPU 真的点起来了，再把干净的实现补进来。
