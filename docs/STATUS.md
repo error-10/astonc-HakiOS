@@ -226,3 +226,38 @@ boot 镜像已重打（`boot-aston-xnu.img` / `boot-aston-auto.img` = `boot-asto
 
 尚未落地的：cpufreq 真正跑起来（RSC 通了，但还要核对 kalama 的 BCM 表）、adsp 固件地址、Wi-Fi 芯片型号
 与固件、GPU。
+
+## 2026-10-31：Wi-Fi 摸到门口，GPU 定性
+
+今天的主线是把 QCA6490 的 PCIe 链路拉起来。结论是**控制器这一侧已经全对，问题在模块没被供电**。
+
+### 做对了什么
+
+- 从 mainline `refs/pcie-qcom.c`、`refs/gcc-sm8550.c`、`refs/clk-rcg2.c` 把 SM8550 的地址和位定义全部核对了一遍，
+  发现我们此前一直是"照着别的机器猜"：
+  - `PARF_LTSSM` 是 `0x1b0`，使能位是 **bit 8**（`LTSSM_EN`），写完状态机才从 `0x0` 变成 `0x101`；
+  - 分支时钟的投票在 `GCC + 0x52008`，`0x52000` bit22 是 RCG 的 `RCHNG`；
+  - 复位是 `GCC + 0x6b000`（`PCIE0_BCR`）与 `0x6c01c`（`PCIE0_PHY_BCR`）；
+  - PHY 的初始化序列是设备树里 `qcom,phy-sequence` 的 111 条三元组，直接生成成
+    `port/kernel/hakios.aston_pcie_phy_seq.h`。不猜，抄。
+- TLMM 的基址一直写错了一兆（`0x0f100000` vs 实际 `pinctrl@f000000`），所以 PERST/CLKREQ/WLAN_EN 写下去等于没写。
+- 电源投票走 RPMh 的 TCS 命令：`tcs_vote(rsc, {addr, addr+4, addr+8}, {mV, 1, 4})`。
+  cmd-db 里的地址是这次才搞对的——`ldob15=0x40b00`、`smpe4=0x40200`、`smpg2=0x40300`、`smpg4=0x40500`、`smpg6=0x40600`。
+  顺带修了自己的一个越界 bug：`db_find()` 拿 8 字节去比 7 个字符的键名，读到了字面量后面的垃圾。
+
+### 卡在哪
+
+- 投票返回 `rc=0`，但 SPMI 回读 PM8550VS 的 SMPS 输出仍是关的，PMIC 侧报 `VDD_MIN underflow`。
+  说明这层不是"写个地址就行"，还得按 RPMh 的 vreg 资源语义补齐字段（电压/模式/余量），
+  这部分正在啃 `drivers/regulator/rpmh-regulator.c`。
+- 只要供电真的起来，链路训练 → MHI 灌固件 → QMI 握手 → ath11k 挂到 iOS 网络栈，都是照抄的活。
+
+### 顺带的结论
+
+- **GPU**：`gpu_cc_gx_gdsc` 在 mainline 里的 `power_on` 是个空函数，GX 归 GMU（GPU 自己的微处理器）管。
+  想点亮得搬 GMU 微码 + 整套 KGSL，这是周级到月级的工程量，不是今天能收的。
+- **电量**：loader 那头读到的电压单位是半毫伏，换算一直错；已经按"信就信、不信就问"的思路加了防抖
+  （连续 6 次没变化就丢弃缓存）。电量计（BQ28Z610）走的 DSP 路径也接上了，ADSP 的内存基址与段数
+  按真机设备树改成 `0x9ea00000`/`0x4880000`、段上限 64（固件本身有 59 段）。
+- **一条硬经验**：`xnu-build.sh` 编译的是 `xnu-src/xnu-8796.121.2`，`xnu/files` 里的改动必须先拷进去，
+  否则会安静地产出一个"没带你改动"的内核，白测一轮。
