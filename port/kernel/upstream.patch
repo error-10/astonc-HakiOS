@@ -1,0 +1,360 @@
+--- a/xnu/files/bsd/dev/hakios.adsp.c
++++ b/xnu/files/bsd/dev/hakios.adsp.c
+@@ -965,8 +965,8 @@
+ 
+ /* ---- step 2: the firmware -------------------------------------------------------------------------- */
+ 
+-#define ADSP_MEMORY             0x86700000u     /* dt: reserved-memory adsp@86700000, memory-region of qcom,lpass@3700000 */
+-#define ADSP_MEMORY_SIZE        0x04000000u
++#define ADSP_MEMORY             0x9ea00000u     /* dt: reserved-memory adspslpi_region@9ea00000, memory-region of remoteproc-adsp */
++#define ADSP_MEMORY_SIZE        0x04880000u     /* dt: adspslpi_region is 0x4880000 long */
+ #define PAS_ADSP                1               /* dt: qcom,pas-id */
+ 
+ 
+@@ -1061,7 +1061,7 @@
+ 
+ 
+ #define MDT_HASH(flags)         (((flags) >> 24 & 7) == 2)
+-#define MAX_SEGMENTS            48
++#define MAX_SEGMENTS            64              /* the firmware here declares 59 */
+ 
+ struct elf_segment {
+ 	uint32_t type, offset, vaddr, paddr, file_size, memory_size, flags, align;
+@@ -2652,6 +2652,10 @@
+ #define USB_TYPE                6               /* Linux's POWER_SUPPLY_USB_TYPE_*: 1 here, a computer's port */
+ #define USB_ONLINE              0
+ #define BATTMGR_SECONDS         10
++#define BATTMGR_WITH_LOADER     3               /* battmgr=3: ask the DSP even with battery=1 in the cmdline */
++#define BATTMGR_MISS_LIMIT      3               /* rounds in a row without a usable answer: the loader's stand in */
++
++extern void hakios_battery_dsp_lost(void);	/* bsd/dev/hakios.battery.c: the loader's numbers stand in again */
+ 
+ struct battmgr_message {
+ 	uint32_t owner, type, opcode;
+@@ -2754,18 +2758,27 @@
+ 		uint32_t capacity = 0, status = 0, present = 0, volt = 0, curr = 0, temp = 0, usb = 0;
+ 		uint32_t usb_type = 0, usb_volt = 0, usb_curr = 0, charge = 0;
+ 		static uint32_t full, design, cycles;
++		static uint32_t battmgr_misses;	/* (rounds in a row without a usable answer) */
+ 		bool good = battmgr_get(BATTMGR_BATTERY_GET, BATT_CAPACITY, &capacity) &&
+ 		    battmgr_get(BATTMGR_BATTERY_GET, BATT_STATUS, &status) &&
+ 		    battmgr_get(BATTMGR_BATTERY_GET, BATT_PRESENT, &present) &&
+ 		    battmgr_get(BATTMGR_BATTERY_GET, BATT_VOLT_NOW, &volt) &&
+ 		    battmgr_get(BATTMGR_BATTERY_GET, BATT_CURR_NOW, &curr) &&
+-		    battmgr_get(BATTMGR_BATTERY_GET, BATT_TEMP, &temp) &&
+-		    battmgr_get(BATTMGR_USB_GET, USB_ONLINE, &usb);
++		    battmgr_get(BATTMGR_BATTERY_GET, BATT_TEMP, &temp);
++
++		/* (the port's answer is not part of "usable": a USB_ONLINE nobody answers must not keep the
++		 * charge off the screen -- external is then 0, which says "on the battery" and no more) */
++		(void)battmgr_get(BATTMGR_USB_GET, USB_ONLINE, &usb);
+ 
+ 		if (good) {
+ 			/* (what may be missing without harm, and the capacities and the cycles only now and then: they hardly change) */
+ 			(void)battmgr_get(BATTMGR_BATTERY_GET, BATT_CHG_COUNTER, &charge);
+ 			if (usb) {
++				/* TODO(unknown property ids): USB_TYPE = 6, USB_VOLT_NOW = 1, USB_CURR_NOW = 3 are
++				 * Linux's qcom_battmgr.c order and are NOT checked against this phone's firmware (only
++				 * BATT_* 0..18 were, see the block's comment). battmgr=2 prints every number these ids
++				 * answer; compare them with dumpsys and /sys/class/power_supply/usb before trusting
++				 * usb_type/usb_voltage_uv/usb_current_ua. 0 is passed on while they answer nothing. */
+ 				(void)battmgr_get(BATTMGR_USB_GET, USB_TYPE, &usb_type);
+ 				(void)battmgr_get(BATTMGR_USB_GET, USB_VOLT_NOW, &usb_volt);
+ 				(void)battmgr_get(BATTMGR_USB_GET, USB_CURR_NOW, &usb_curr);
+@@ -2791,6 +2804,15 @@
+ 			b.usb_current_ua = (int32_t)usb_curr;
+ 			hakios_battery_report(&b);
+ 		}
++		if (good) {
++			battmgr_misses = 0;
++		} else if (++battmgr_misses == BATTMGR_MISS_LIMIT) {
++			/* (nothing usable for three rounds: what the loader last said is nearer the truth than a
++			 * battery nobody is counting -- bsd/dev/hakios.battery.c takes the power source back.
++			 * Said once per outage: == and never reset, or the line would come every third round) */
++			tell("adsp: battmgr: nothing usable for %u rounds: the loader's numbers stand in again\n", battmgr_misses);
++			hakios_battery_dsp_lost();
++		}
+ 		if (round < 3 || round % 6 == 0 || !good) {
+ 			tell("adsp: battmgr: %s capacity %u (hundredths of a percent), status %u, present %u, %d uV, %d uA, temperature %d "
+ 			    "(hundredths of a degree), charge %u uAh, USB online %u (type %u, %u uV, %u uA)\n",
+@@ -2819,8 +2841,9 @@
+ 	if (wanted == 0 || battmgr.runs) {
+ 		return;
+ 	}
+-	if (option("battery")) {
+-		/* (the loader's way, through Qualcomm's UEFI charger drivers: one way to the battery at a time) */
++	if (option("battery") && wanted != BATTMGR_WITH_LOADER) {
++		/* (the loader's way, through Qualcomm's UEFI charger drivers: one way to the battery at a time;
++		 * battmgr=3 asks the DSP anyway, for a launcher whose cmdline still says battery=1) */
+ 		tell("adsp: battmgr: not with battery=1: the battery is asked about the loader's way\n");
+ 		return;
+ 	}
+--- a/xnu/files/bsd/dev/hakios.battery.c
++++ b/xnu/files/bsd/dev/hakios.battery.c
+@@ -43,6 +43,12 @@
+ static int battery_charging, battery_soc_estimated, battery_charger_action = -1;
+ static uint64_t battery_updates, battery_failures;
+ 
++/* A poll every 5 s, so 6 of them is half a minute without a new word from the loader. */
++#define BATTERY_STALE_POLLS 6
++static uint32_t battery_polls_seen;
++static int battery_stale_polls, battery_stale_said;
++static void battery_forget(void);
++
+ /* for others in the kernel (the flashlight's thermal guard): -273 while it is not known */
+ int
+ hakios_battery_temperature(void)
+@@ -87,6 +93,8 @@
+ 	return false;
+ }
+ 
++static void battery_report_from_loader(void);      /* the loader values as the power source iOS reads */
++
+ static void
+ battery_poll(void)
+ {
+@@ -99,15 +107,32 @@
+ 		return;
+ 	}
+ 	battery_soc_percent = sample.soc_percent;
+-	battery_voltage_mv = (sample.flags & LOADER_BATTERY_VOLTAGE_VALID) ? sample.voltage_mv : -1;
++	battery_voltage_mv = ((sample.flags & LOADER_BATTERY_VOLTAGE_VALID) && sample.voltage_mv > 0) ?
++	    sample.voltage_mv : -1;
+ 	battery_current_ma = sample.current_ma;
+-	battery_temperature_c = sample.temperature_c;
++	/* 0 and -273 are how "the firmware could not read it" arrives; do not pass those on. */
++	battery_temperature_c = (sample.temperature_c > -4000 && sample.temperature_c < 12000) ?
++	    sample.temperature_c : -273;
+ 	battery_present = (sample.flags & LOADER_BATTERY_PRESENT) != 0;
+ 	battery_charger_present = (sample.flags & LOADER_BATTERY_CHARGER_PRESENT) != 0;
+ 	battery_charging = (sample.flags & LOADER_BATTERY_CHARGING) != 0;
+ 	battery_soc_estimated = (sample.flags & LOADER_BATTERY_SOC_ESTIMATED) != 0;
+ 	battery_charger_action = (int)sample.charger_action;
+ 	battery_updates++;
++	if (sample.polls == battery_polls_seen) {
++		if (++battery_stale_polls >= BATTERY_STALE_POLLS && !battery_stale_said) {
++			battery_stale_said = 1;
++			printf("hakios: battery: the loader's cache has not moved for %d polls; forgetting it\n",
++			    battery_stale_polls);
++			battery_forget();
++			return;
++		}
++	} else {
++		battery_polls_seen = sample.polls;
++		battery_stale_polls = 0;
++		battery_stale_said = 0;
++	}
++	battery_report_from_loader();
+ }
+ 
+ /*
+@@ -128,6 +153,32 @@
+ 
+ extern void HakiosBatteryReport(const void *state, unsigned size);     /* iokit/Kernel/hakios.battery.cpp */
+ 
++/*
++ * The last words of a loader that is no longer answering are not the truth any more.  Keep the
++ * percentage (there is nothing better to put in its place, and iOS dislikes a power source that
++ * loses its charge), drop everything that has to be live -- the lightning bolt above all -- and let
++ * iOS know the battery is on its own now.
++ */
++static void
++battery_forget(void)
++{
++	struct hakios_battery_state b;
++
++	battery_voltage_mv = -1;
++	battery_current_ma = 0;
++	battery_temperature_c = -273;
++	battery_charging = 0;
++	battery_charger_present = 0;
++	battery_soc_estimated = 1;
++	bzero(&b, sizeof(b));
++	b.size = sizeof(b);
++	b.percent_hundredths = (battery_soc_percent < 0 ? 0 : battery_soc_percent) * 100;
++	b.present = 1;
++	b.status = 2;			/* POWER_SUPPLY_STATUS_DISCHARGING: nothing is feeding us */
++	battery_updates++;
++	HakiosBatteryReport(&b, sizeof(b));
++}
++
+ void
+ hakios_battery_report(const struct hakios_battery_state *b)
+ {
+@@ -156,6 +207,47 @@
+ 	HakiosBatteryReport(b, sizeof(*b));
+ }
+ 
++/*
++ * The DSP's battery manager has gone quiet (bsd/dev/hakios.adsp.c, battmgr_thread: rounds in a
++ * row without a usable answer).  The loader's last numbers stand in again rather than a power
++ * source that nobody updates; the next word from either of them says which one it is.
++ */
++void
++hakios_battery_dsp_lost(void)
++{
++	if (battery_source_dsp) {
++		printf("hakios: battery: the DSP's battery manager is quiet; the loader's numbers stand in\n");
++	}
++	battery_source_dsp = 0;
++}
++
++/*
++ * The loader's reading as the power source iOS looks for.
++ *
++ * The battery manager on the audio DSP is the better source where it runs (it counts
++ * charge, and it is what Android shows); this stands in while it does not, so that a
++ * phone whose charger stack is up has a charge to show at all.
++ */
++static void
++battery_report_from_loader(void)
++{
++	struct hakios_battery_state b;
++
++	if (battery_source_dsp || battery_soc_percent < 0 || battery_soc_percent > 100) {
++		return;
++	}
++	memset(&b, 0, sizeof(b));
++	b.size = sizeof(b);
++	b.percent_hundredths = battery_soc_percent * 100;
++	b.voltage_uv = battery_voltage_mv > 0 ? battery_voltage_mv * 1000 : 0;
++	b.current_ua = battery_current_ma * 1000;
++	b.temperature_hundredths = battery_temperature_c * 100;
++	b.present = battery_present;
++	b.external = battery_charger_present;
++	b.status = battery_charging ? 1 : battery_charger_present ? 4 : 2;
++	HakiosBatteryReport(&b, sizeof(b));
++}
++
+ static void
+ battery_thread(__unused void *parameter, __unused wait_result_t result)
+ {
+--- a/xnu/files/bsd/dev/hakios.input.c
++++ b/xnu/files/bsd/dev/hakios.input.c
+@@ -205,6 +205,44 @@
+ 	.d_mmap = eno_mmap, .d_strategy = eno_strat, .d_type = 0
+ };
+ 
++
++/*
++ * The always-on resource controller and the command DB, as the loader told us.  Asked once and
++ * remembered: these never move during a run.
++ */
++static uint32_t
++boot_arg_address(const char *name)
++{
++	uint64_t value = 0;
++
++	if (!PE_parse_boot_argn(name, &value, sizeof(value))) {
++		return 0;
++	}
++	return (uint32_t)value;
++}
++
++uint32_t
++hakios_soc_rsc(void)
++{
++	static uint32_t value = 0xffffffffu;
++
++	if (value == 0xffffffffu) {
++		value = boot_arg_address("soc_rsc");
++	}
++	return value;
++}
++
++uint32_t
++hakios_soc_cmd_db(void)
++{
++	static uint32_t value = 0xffffffffu;
++
++	if (value == 0xffffffffu) {
++		value = boot_arg_address("soc_cmd_db");
++	}
++	return value;
++}
++
+ void
+ hakios_input_init(void)
+ {
+@@ -217,11 +255,14 @@
+ 	hakios_cpufreq_init();
+ 	hakios_virtio_input_init();
+ 	hakios_goodix_init();
++	hakios_aston_touch_init();
+ 	hakios_buttons_init();
+ 	hakios_battery_init();
+ 	hakios_ufs_init();
+ 	hakios_net_init();
+ 	hakios_adreno_init();
++	hakios_a740_init();
++	hakios_aston_wifi_init();
+ 	hakios_wifi_init();
+ 	hakios_adsp_init();
+ 	hakios_mpss_init();
+--- a/xnu/files/bsd/sys/hakios.input.h
++++ b/xnu/files/bsd/sys/hakios.input.h
+@@ -39,8 +39,16 @@
+ /* For drivers; not from interrupt context. */
+ void hakios_touch_post(uint32_t type, uint32_t finger, uint32_t x, uint32_t y);
+ void hakios_input_init(void);
++
++/* Where the SoC's blocks are, from the loader's boot arguments (soc_rsc=, soc_cmd_db=).
++ * A driver that cannot hard-code one phone's addresses asks here: 0 means "not told". */
++uint32_t hakios_soc_rsc(void);
++uint32_t hakios_soc_cmd_db(void);
+ void hakios_virtio_input_init(void);   /* boot-arg virtio_input=1: QEMU's virtio pointer and keyboard */
+ void hakios_goodix_init(void);         /* boot-arg touchscreen=1: the phone's Goodix or FocalTech touch screen */
++void hakios_aston_touch_init(void);
++void hakios_a740_init(void);
++void hakios_aston_wifi_init(void);       /* boot-arg aston_touch=1: OnePlus Ace 3 S3910 over bit-bang SPI */
+ void hakios_buttons_init(void);        /* boot-arg buttons=1: the phone's power and volume keys */
+ void hakios_ufs_init(void);           /* ufs=2 to xnuloader: the phone's storage, read only, through the loader (ufs_shared_pa=) */
+ void hakios_ufs_report(const char *when); /* where reading the storage has spent its time so far */
+--- a/xnu/files/iokit/Kernel/hakios.battery.cpp
++++ b/xnu/files/iokit/Kernel/hakios.battery.cpp
+@@ -123,14 +123,18 @@
+ 	setExternalConnected(b->external != 0);
+ 	setExternalChargeCapable(b->external != 0);
+ 	setIsCharging(charging);
+-	flag("FullyCharged", b->external && (b->status == 4 || percent == 100));    /* POWER_SUPPLY_STATUS_FULL */
++	flag("FullyCharged", b->external && (b->status == 4 || percent == 100) && percent >= 95);    /* POWER_SUPPLY_STATUS_FULL */
+ 	flag("AppleRawExternalConnected", b->external != 0);
+ 	setCurrentCapacity((unsigned) percent);
+ 	setMaxCapacity(100);
+-	setVoltage((unsigned) (b->voltage_uv / 1000));
++	if (b->voltage_uv > 0) {
++		setVoltage((unsigned) (b->voltage_uv / 1000));
++	}
+ 	setAmperage(b->current_ua / 1000);
+ 	number("InstantAmperage", b->current_ua / 1000);
+-	number("Temperature", b->temperature_hundredths);
++	if (b->temperature_hundredths > -4000 && b->temperature_hundredths < 12000) {
++		number("Temperature", b->temperature_hundredths);
++	}
+ 	if (b->charge_uah > 0) {
+ 		number("AppleRawCurrentCapacity", b->charge_uah / 1000);
+ 	}
+@@ -147,7 +151,13 @@
+ 
+ 	if (b->external) {
+ 		OSDictionary * adapter = OSDictionary::withCapacity(6);
+-		long long mv = b->usb_voltage_uv / 1000, ma = b->usb_current_ua / 1000;
++		long long mv = (b->usb_voltage_uv > 0 ? b->usb_voltage_uv : b->voltage_uv) / 1000;
++		long long ma = b->usb_current_ua > 0 ? b->usb_current_ua / 1000 : 0;
++		int type = b->usb_type;
++
++		if (type <= 0) {
++			type = ma >= 500 ? 2 : 1;	/* a charger rather than a computer's port */
++		}
+ 		OSNumber * n;
+ 
+ 		if (adapter != NULL) {
+@@ -163,7 +173,7 @@
+ 				adapter->setObject(kIOPMPSAdapterDetailsVoltage, n);
+ 				n->release();
+ 			}
+-			if ((n = OSNumber::withNumber((unsigned long long) family_code(b->usb_type), 32)) != NULL) {
++			if ((n = OSNumber::withNumber((unsigned long long) family_code(type), 32)) != NULL) {
+ 				adapter->setObject(kIOPMPSAdapterDetailsFamilyKey, n);
+ 				n->release();
+ 			}
