@@ -120,6 +120,26 @@ TCSR 的 `pcie_0_clkref_en`（`0x15100`，bit0）、PARF 的 DBI 与路由配置
 - `aston_wifi_only=22`（仅上电与引脚配置）会使内核在 25 秒自动交还之前挂死，导致 loader 一同失联。
   `aston_wifi_only=24`（完整流程）同样如此。
 
+### 2026-10-31：中文界面、电源键与看门狗
+
+中文界面。系统镜像有两处把中文丢掉了。`sysimage/select-system.py` 的 `KEEP_LANG` 只保留英文与 Base，
+根文件系统里 `zh-Hans.lproj` 的数量是 0；另外 `fetch.sh` 会调 `font_trim.py` 把 PingFang 精简到
+Regular 与 Semibold 两个字重，主屏图标名用的是 Medium，找不到就退回不含中文字形的字体，显示成方框。
+把 `KEEP_LANG` 扩到 `zh_CN` 等目录、PingFang 保留全部 18 个字面（74.3 MB）之后重新解包并重编
+`system.apfs`（2,525,704,192 字节），界面与图标名都正常。语言仍由 `userland/src/init.c` 的
+`seed_language()` 在每次开机时写进 `/private/var` 的 ramfs，因为那一层每次开机都是新建的。
+
+电源键与音量键。SM8550 的 PMIC 仲裁器是版本 7，和内核里原来那套版本 5 的实现不是一回事：APID 表在
+`0x0c400000 + 0x2000`，读走 `0x0c440000` 的 observer 区（每个 APID 0x20 字节，命令字 13<<27），
+写通道在 `0x0c500000`。原来的代码把 core 当成 `0x0c440000`、observer 当成 `0x0e600000`，版本检查
+还会拒绝 7，所以这两个键从来没工作过。这次把一加 13 移植里对应的改动整段搬了过来，编译通过。
+
+看门狗。为了排查冻屏，另外做了一个不武装 Gunyah 虚拟看门狗的 loader，`wdt_arm()` 直接返回。崩溃后
+不再 60 秒自动复位，屏幕停在最后一帧，可以拍照取证。代价是死机只能长按电源。
+
+冻屏没有解决。把电池路径关掉（`battery=0 battery_qcom=0`）跑满十分钟仍然在中途失去响应；GPU 在缺少
+`/fw/a660_gmu.bin` 时不会启动，也已经排除。
+
 ## 已知问题
 
 | 问题 | 现象 | 现状 |
@@ -128,7 +148,7 @@ TCSR 的 `pcie_0_clkref_en`（`0x15100`，bit0）、PARF 的 DBI 与路由配置
 | Wi-Fi 模块供电 | SPMI 读回输出为关闭 | RSC 投票返回成功但未生效，怀疑 mode 值与使能顺序 |
 | Wi-Fi 链路 | LTSSM 停在 DETECT_ACT | 模块未上电或未响应，与上一条相关 |
 | 电池数值 | 显示 10%，实际 60% 以上 | 字段布局与半毫伏换算未核对 |
-| 运行中冻结 | 长时间运行后画面静止、USB 失联 | 未定位，可能与 GPU 或电源管理有关 |
+| 运行中冻结 | 长时间运行后画面静止、USB 失联 | 未定位。已排除电池路径与 GPU；改用不武装看门狗的 loader 抓 panic |
 | 音频 | 无声音 | 未开始，需要 ADSP、SMP2P、GLINK、QRTR |
 | 蜂窝 | 无信号 | 未开始，需要 Modem、IPA 与 SIM 相关支持 |
 
