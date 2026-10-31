@@ -4,10 +4,8 @@
 #
 #   IMAGE_OPTS  passed to userland/build.sh (default REST=1: the whole stock job set)
 set -euo pipefail
-ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-H=${HACKIOS_HOME:-$HOME/hackios}
 H="$HOME/hackios/hackios-os"
-OUT="$ROOT/out"
+OUT="/mnt/c/Users/96943/Desktop/ios/out"
 OPTS="${IMAGE_OPTS:-REST=1}"
 
 cd "$H"

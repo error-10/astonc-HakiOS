@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
-ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-H=${HACKIOS_HOME:-$HOME/hackios}
 # Build the HakiOS XNU kernel (arm64, BCM2837 development config) for the aston port.
 # Run as the normal WSL user (not root): theos lives in that user's home and setup.sh
 # resolves THEOS as ~/theos.
 set -uo pipefail
+H=/home/chenyu/hackios
 HS=$H/hackios-os
 L=$H/logs
 mkdir -p "$L"
 cd "$HS" || exit 1
-export THEOS=${THEOS:-$HOME/theos}
+export THEOS=/home/chenyu/theos
 
 echo "=== $(date +%H:%M:%S) xnu-deps/setup.sh ==="
 ./xnu-deps/setup.sh >"$L/xnu-deps.log" 2>&1

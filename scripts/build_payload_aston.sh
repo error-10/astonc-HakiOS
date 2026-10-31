@@ -4,14 +4,13 @@
 #   out/boot-aston-auto.img  all-in-one: the loader boots the kernel by itself, no USB needed
 #   out/boot-aston-full.img  same as auto but keeps the old name people already have
 set -euo pipefail
-ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-H=${HACKIOS_HOME:-$HOME/hackios}
+H=/home/chenyu/hackios
 HS=$H/hackios-os
-PORT=$ROOT/port
-OUT=$ROOT/out
+PORT=/mnt/c/Users/96943/Desktop/ios/port
+OUT=/mnt/c/Users/96943/Desktop/ios/out
 K=$HS/xnu-src/xnu-8796.121.2/BUILD/obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837
 PY=$H/venv/bin/python3
-SOC_ARGS=${SOC_ARGS:-$ROOT/port/devices/oneplus-aston/soc.args}
+SOC_ARGS=${SOC_ARGS:-/mnt/c/Users/96943/Desktop/ios/port/devices/oneplus-aston/soc.args}
 
 # First bring-up cmdline. Keep it small: every flag is a driver the kernel skips or starts,
 # and a wrong one is a panic we have to tell apart from a wrong address. The soc_* block

@@ -2,11 +2,10 @@
 # Build Mu-Silicium UEFI for OnePlus Ace 3 (astonPkg) and pack a `fastboot boot` image.
 # Run as: wsl -d Ubuntu -- bash -lc "sed -i 's/\r$//' <this>; bash <this>"
 set -euo pipefail
-ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-H=${HACKIOS_HOME:-$HOME/hackios}
 
+H=/home/chenyu/hackios
 MU=$H/Mu-Silicium
-OUT=$ROOT/out
+OUT=/mnt/c/Users/96943/Desktop/ios/out
 mkdir -p "$H/logs" "$OUT"
 cd "$H"
 
@@ -55,6 +54,6 @@ make REQUIRES_KERNEL_HEADER=1 FD_BASE=0xA7100000 FD_SIZE=0x300000 \
      CFLAGS=--target=aarch64-linux-gnu
 
 say "pack boot.img (header v4)"
-python3 $ROOT/port/mkboot-aston.py --fd "$FD" --out "$OUT/boot-aston-uefi.img"
+python3 /mnt/c/Users/96943/Desktop/ios/port/mkboot-aston.py --fd "$FD" --out "$OUT/boot-aston-uefi.img"
 ls -l "$OUT"
 echo READY_UEFI

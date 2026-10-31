@@ -1,0 +1,6 @@
+# 一律用 LF：.sh 带着 CRLF 进 WSL 会直接跑不起来，.patch 也一样
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.fd binary
+*.apfs binary

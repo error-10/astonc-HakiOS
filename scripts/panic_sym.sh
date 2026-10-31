@@ -1,6 +1,4 @@
 #!/bin/bash
-ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-H=${HACKIOS_HOME:-$HOME/hackios}
 # Resolve kernel panic addresses against the unstripped Mach-O kernel.
 # usage: panic_sym.sh <kernel-file> <text-base-hex> <addr-hex> [...]
 set -e

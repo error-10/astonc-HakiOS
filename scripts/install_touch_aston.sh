@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
-ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-H=${HACKIOS_HOME:-$HOME/hackios}
 # Install the aston touch driver into the HakiOS kernel tree (both the port's
 # authoritative copies under xnu/files and the already-patched xnu-src tree).
 set -uo pipefail
-HS=$H/hackios-os
+HS=/home/chenyu/hackios/hackios-os
 X=$HS/xnu-src/xnu-8796.121.2
-SRC=$ROOT/port/kernel
+SRC=/mnt/c/Users/96943/Desktop/ios/port/kernel
 DRV=hakios.aston_touch.c
 HW=hakios.aston_touch_hw.h
 

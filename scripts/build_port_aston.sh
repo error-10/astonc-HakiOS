@@ -7,12 +7,11 @@
 #
 # Run as: wsl -d Ubuntu -u root -- bash -lc "sed -i 's/\r$//' <this>; bash <this>"
 set -euo pipefail
-ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-H=${HACKIOS_HOME:-$HOME/hackios}
 
+H=/home/chenyu/hackios
 MU=$H/Mu-Silicium
-PORT=$ROOT/port
-OUT=$ROOT/out
+PORT=/mnt/c/Users/96943/Desktop/ios/port
+OUT=/mnt/c/Users/96943/Desktop/ios/out
 mkdir -p "$H/logs" "$OUT"
 cd "$H"
 

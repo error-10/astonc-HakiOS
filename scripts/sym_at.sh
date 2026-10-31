@@ -1,6 +1,4 @@
 #!/bin/bash
-ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-H=${HACKIOS_HOME:-$HOME/hackios}
 # Map a kernel virtual address (from a panic PC) to the nearest preceding symbol.
 # usage: sym_at.sh <kernel-file> <hex-offset-from-text-base>
 set -e

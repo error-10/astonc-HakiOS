@@ -15,6 +15,11 @@ Commands
                          build out/run-payload.bin for the loader
   run     [--secs N] [--root FILE] [--ramdisk FILE] [--cmdline "..."] [--follow N]
                          boot the loader if needed, stage the payload, `oem run`, fetch the log
+  probe   [--secs N] [--cmdline "..."]
+                         a round that is meant to come back: no resident image, so the kernel
+                         stops at "waiting for root device" and loader_return_after hands it
+                         back before userland takes the USB. Then says whether the loader is
+                         still reachable -- the point of these rounds is many per one boot.
   log                    fetch the loader/kernel log to out/loader.log
   reboot                 cold reset back to Android
 
@@ -46,7 +51,12 @@ SOC_ARGS = os.path.join(WS, 'port', 'devices', 'oneplus-aston', 'soc.args')
 # The kernel command line the port needs on top of whatever the caller passes: the loader
 # reports where it put the payload on stdout, `rd=md0` is the resident system image, and
 # `hv_wdt_pet=1` lets the loader keep the phone's virtual watchdog fed while XNU runs.
-BASE_CMDLINE = 'debug=0x8 cpus=8 rd=md0 hv_wdt_pet=1 aston_touch=1 aston_touch_ldo=1 battery=1'
+# battery=1 is deliberately absent: it makes the loader ask the charger every 5 seconds, and
+# that call goes through Qualcomm's charging DXEs, which do not survive the kernel running next
+# to them -- the loader then stops answering and its log is lost.  Put it back only when the
+# battery work resumes.
+BASE_CMDLINE = ('debug=0x8 cpus=8 rd=md0 hv_wdt_pet=1 aston_touch=1 aston_touch_ldo=1 '
+                'battery=1 battery_qcom=1')
 
 
 def fb(*args, timeout=30, capture=True):
@@ -209,9 +219,103 @@ def get_readlog(path=os.path.join(OUT, 'logdump.log')):
     cut = raw.rfind(b'\n')
     raw = raw[:cut + 1] if cut > 0 else raw.rstrip(b'\0')
     open(path, 'wb').write(raw)
-    print(raw.decode(errors='replace'))
-    print(f'log saved to {path}')
+    # This console is GBK, so anything that is not ASCII would raise on print. The file on
+    # disk keeps every byte; the summary below stays printable.
+    text = raw.decode('utf-8', errors='replace').encode('ascii', 'replace').decode('ascii')
+    lines = text.splitlines()
+    print(f'log: {len(raw)} bytes, {len(lines)} lines, saved to {path}')
+    highlights = [l for l in lines if ('wifi:' in l or 'panic' in l or 'abort' in l
+                                       or 'abort' in l.lower())]
+    if highlights:
+        print('log: the lines that matter:')
+        for line in highlights[-40:]:
+            print('  ' + line)
+    else:
+        print('log: no wifi/panic/abort lines in it; last three lines:')
+        for line in lines[-3:]:
+            print('  ' + line)
     return path
+
+
+def recover(seconds=120):
+    """Get the phone back to `fastboot` without anyone pressing buttons.
+
+    When a run ends in Android (a cold reset boots the system), `adb reboot bootloader` is
+    enough. Only a phone that is dead in both adb and fastboot needs the hands.
+    """
+    rc, out = fb('devices', timeout=20)
+    if out.strip():
+        print('fastboot already sees the phone:')
+        print(out.strip())
+        return 0
+    adb = shutil.which('adb')
+    if not adb:
+        print('no adb in PATH: cannot bring the phone back on its own')
+        return 1
+    p = subprocess.run([adb, 'devices'], capture_output=True, text=True)
+    lines = [l.split() for l in p.stdout.splitlines()[1:] if l.strip()]
+    ready = [l[0] for l in lines if len(l) > 1 and l[1] == 'device']
+    if not ready:
+        print('adb sees no authorised device either - this one needs the hands')
+        print('(hold power ~12 s, then volume-up + volume-down + cable into fastboot)')
+        return 1
+    print(f'adb: {ready[0]} in Android, sending it to the bootloader')
+    subprocess.run([adb, '-s', ready[0], 'reboot', 'bootloader'], capture_output=True)
+    for _ in range(seconds):
+        if fb('devices', timeout=10)[1].strip():
+            print('fastboot is back')
+            return 0
+        time.sleep(1)
+    print('the bootloader did not come back in time')
+    return 1
+
+
+def loader_alive():
+    """Ask the loader for its product string: 'xnuloader' means the USB side is still ours."""
+    rc, out = fb('getvar', 'product', timeout=20)
+    return rc == 0 and 'xnuloader' in out
+
+
+def run_probe(secs, cmdline):
+    """A round that has to come back by itself.
+
+    No resident image is staged: with no root device the kernel stops early instead of going
+    on into userland, and `loader_return_after` hands control back while UEFI's USB still
+    belongs to the loader. If that works out, the next round starts right here without a
+    power cycle -- which is the whole point.
+    """
+    require_loader()
+    path = build_payload(secs, '', cmdline)
+    print(f'fastboot stage {path}')
+    rc, out = fb('stage', path, timeout=300)
+    print(out.strip())
+    if rc != 0 or 'OKAY' not in out.upper():
+        sys.exit('stage failed')
+    rc, out = fb('oem', 'run', timeout=30)
+    print(out.strip())
+
+    end = time.time() + secs + 60
+    result = ''
+    while time.time() < end:
+        _, got = fb('getvar', 'result', timeout=20)
+        line = next((l for l in got.splitlines() if l.startswith('result:')), '')
+        if line and 'running' not in line:
+            result = line
+            break
+        time.sleep(2)
+    print(result or 'result: no answer')
+
+    if loader_alive():
+        print('PROBE_OK: the loader is still on USB - the next round can start right away')
+        # The kernel's own log is the interesting one here, and it comes back through the log
+        # partition (the loader writes both when the kernel returns), not through the loader's
+        # own staging buffer.
+        get_readlog()
+        return 0
+    print('PROBE_LOST: the loader no longer answers on USB')
+    print('  the return happened too late (userland had taken the USB), or it did not happen')
+    print('  a shorter --secs is the first thing to try')
+    return 1
 
 
 def main():
@@ -236,6 +340,10 @@ def main():
     sub.add_parser('log')
     sub.add_parser('readlog')
     sub.add_parser('reboot')
+    sub.add_parser('recover')
+    p = sub.add_parser('probe')
+    p.add_argument('--secs', type=int, default=30)
+    p.add_argument('--cmdline', default='')
     a = ap.parse_args()
 
     if a.cmd == 'status':
@@ -292,6 +400,10 @@ def main():
         get_log()
     elif a.cmd == 'readlog':
         get_readlog()
+    elif a.cmd == 'recover':
+        sys.exit(recover())
+    elif a.cmd == 'probe':
+        sys.exit(run_probe(a.secs, a.cmdline))
     elif a.cmd == 'reboot':
         fb('reboot')
 

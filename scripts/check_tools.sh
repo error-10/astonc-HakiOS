@@ -1,6 +1,4 @@
 #!/bin/bash
-ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-H=${HACKIOS_HOME:-$HOME/hackios}
 # Report the userland-image build toolchain state in the WSL build tree.
 for t in 7z 7zz lz4 cc make python3 dtc xz unzip; do
 	p=$(command -v "$t" 2>/dev/null)
